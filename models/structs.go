@@ -35,6 +35,7 @@ type OutputModel struct {
 	AverageDaysBetweenVisit int
 	TotalSessions           int
 	TotalTransactions       int
+	Returns                 int
 }
 
 type CountModel struct {
@@ -43,4 +44,5 @@ type CountModel struct {
 	AverageDaysBetweenVisit int
 	SessionsTotal           int
 	TransactionsTotal       int
+	AverageReturns          int
 }
