@@ -33,10 +33,14 @@ type OutputModel struct {
 	Browser                 string
 	Group                   Group
 	AverageDaysBetweenVisit int
+	TotalSessions           int
+	TotalTransactions       int
 }
 
 type CountModel struct {
 	Browser                 string
 	ReturningUserTotal      int
 	AverageDaysBetweenVisit int
+	SessionsTotal           int
+	TransactionsTotal       int
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -56,7 +57,7 @@ func main() {
 func exportValues(outputModels []models.OutputModel, browserDataLen int, start *time.Time) {
 	fmt.Println("--- --- --- --- --- ---")
 
-	fmt.Println("Total sessions: ", browserDataLen)
+	fmt.Println("Total records: ", browserDataLen)
 	fmt.Println("Total returning users: ", len(outputModels))
 
 	fmt.Println("--- --- --- --- --- ---")
@@ -70,6 +71,10 @@ func exportValues(outputModels []models.OutputModel, browserDataLen int, start *
 		"firefox",
 		"samsung internet",
 	}
+	countModels := []models.CountModel{}
+
+	totalSessions := 0
+	totalTransactions := 0
 
 	for _, browser := range browserNames {
 		shouldFilter := false
@@ -80,13 +85,29 @@ func exportValues(outputModels []models.OutputModel, browserDataLen int, start *
 
 		outputModelsForBrowser := getOutputModelsForBrowser(browser, outputModels, shouldFilter)
 		averageDaysForBrowser := getAverageDaysForOutputModels(outputModelsForBrowser)
+		sessionsForBrowser := getSessionsForBrowser(outputModelsForBrowser)
+		transactionsForBrowser := getTransactionsForBrowser(outputModelsForBrowser)
 		browserCountModel := models.CountModel{
 			Browser:                 strings.ToTitle(browser),
 			AverageDaysBetweenVisit: averageDaysForBrowser,
 			ReturningUserTotal:      len(outputModelsForBrowser),
+			SessionsTotal:           sessionsForBrowser,
+			TransactionsTotal:       transactionsForBrowser,
 		}
 
-		outputValuesToConsole(browserCountModel)
+		totalSessions += sessionsForBrowser
+		totalTransactions += transactionsForBrowser
+
+		countModels = append(countModels, browserCountModel)
+	}
+
+	fmt.Println("Total sessions: ", totalSessions)
+	fmt.Println("Total transactions: ", totalTransactions)
+
+	fmt.Println("--- --- --- --- --- ---")
+
+	for _, cm := range countModels {
+		outputValuesToConsole(cm)
 	}
 }
 
@@ -134,11 +155,33 @@ func getAverageDaysForOutputModels(outputModels []models.OutputModel) int {
 	return averageDays
 }
 
+func getSessionsForBrowser(outputModels []models.OutputModel) int {
+	sessions := 0
+
+	for _, om := range outputModels {
+		sessions += om.TotalSessions
+	}
+
+	return sessions
+}
+
+func getTransactionsForBrowser(outputModels []models.OutputModel) int {
+	transactions := 0
+
+	for _, om := range outputModels {
+		transactions += om.TotalTransactions
+	}
+
+	return transactions
+}
+
 func outputValuesToConsole(countModel models.CountModel) {
 	browser := countModel.Browser
 
 	fmt.Println(browser+" returning users: ", countModel.ReturningUserTotal)
 	fmt.Println(browser+" average days between visits: ", countModel.AverageDaysBetweenVisit)
+	fmt.Println(browser+" total sessions: ", countModel.SessionsTotal)
+	fmt.Println(browser+" total transactions: ", countModel.TransactionsTotal)
 
 	fmt.Println("--- --- --- --- --- ---")
 }
@@ -147,6 +190,8 @@ func getOuputModels(groupQuery []linq.Group) []models.OutputModel {
 	outputModels := []models.OutputModel{}
 
 	for _, gq := range groupQuery {
+		totalSessions := 0
+		totalTransactions := 0
 		averageDays := 0
 		days := []int{}
 		groupLength := len(gq.Group)
@@ -160,6 +205,12 @@ func getOuputModels(groupQuery []linq.Group) []models.OutputModel {
 
 				days = append(days, daysBetween)
 			}
+
+			sessions, _ := strconv.Atoi(gq.Group[i].(models.BrowserData).Sessions)
+			transactions, _ := strconv.Atoi(gq.Group[i].(models.BrowserData).Transactions)
+
+			totalSessions += sessions
+			totalTransactions += transactions
 		}
 
 		if len(days) == 1 {
@@ -177,6 +228,8 @@ func getOuputModels(groupQuery []linq.Group) []models.OutputModel {
 		outputModels = append(outputModels, models.OutputModel{
 			Group:                   gq,
 			AverageDaysBetweenVisit: averageDays,
+			TotalSessions:           totalSessions,
+			TotalTransactions:       totalTransactions,
 		})
 	}
 
