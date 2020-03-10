@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,10 @@ func main() {
 	start := time.Now()
 
 	fmt.Println("Start time: ", start.String())
+
+	if _, err := os.Stat("data"); os.IsNotExist(err) {
+		panic("data folder not found. Please add a folder named 'data' with csv files.")
+	}
 
 	filenames, filenamesErr := utils.GetFilenamesFromFolder("//data")
 
