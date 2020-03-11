@@ -55,14 +55,14 @@ func main() {
 		panic(errors.New("Output models is empty"))
 	}
 
-	exportValues(outputModels, len(browserData), &start)
+	exportValues(outputModels, browserData, &start)
 
 	end := time.Since(start)
 
 	fmt.Println("Execution time: ", end)
 }
 
-func exportValues(outputModels []models.OutputModel, browserDataLen int, start *time.Time) {
+func exportValues(outputModels []models.OutputModel, browserData []models.BrowserData, start *time.Time) {
 	browserNames := []string{
 		"chrome",
 		"safari",
@@ -71,9 +71,19 @@ func exportValues(outputModels []models.OutputModel, browserDataLen int, start *
 		"edge",
 		"firefox",
 		"samsung internet",
+		"opera",
+		"amazon silk",
+		"mozilla compatible agent",
+		"android webview",
+		"safari (in-app)",
+		"uc browser",
+		"e.ventures investment crawler",
+		"(not set)",
+		`''`,
 	}
 	countModels := []models.CountModel{}
 
+	totalUsers := 0
 	totalReturningSessions := 0
 	totalReturningTransactions := 0
 
@@ -84,6 +94,7 @@ func exportValues(outputModels []models.OutputModel, browserDataLen int, start *
 			shouldFilter = true
 		}
 
+		totalUsersForBrowser := getTotalUsersForBrowser(browser, browserData, shouldFilter)
 		outputModelsForBrowser := getOutputModelsForBrowser(browser, outputModels, shouldFilter)
 		averageDaysForBrowser := getAverageDaysForOutputModels(outputModelsForBrowser)
 		sessionsForBrowser := getSessionsForBrowser(outputModelsForBrowser)
@@ -91,6 +102,7 @@ func exportValues(outputModels []models.OutputModel, browserDataLen int, start *
 		averageReturnsForBrowser := getAverageReturnsForBrowser(outputModelsForBrowser)
 		browserCountModel := models.CountModel{
 			Browser:                 strings.ToTitle(browser),
+			TotalUsers:              totalUsersForBrowser,
 			AverageDaysBetweenVisit: averageDaysForBrowser,
 			ReturningUserTotal:      len(outputModelsForBrowser),
 			SessionsTotal:           sessionsForBrowser,
@@ -98,6 +110,7 @@ func exportValues(outputModels []models.OutputModel, browserDataLen int, start *
 			AverageReturns:          averageReturnsForBrowser,
 		}
 
+		totalUsers += totalUsersForBrowser
 		totalReturningSessions += sessionsForBrowser
 		totalReturningTransactions += transactionsForBrowser
 
@@ -106,7 +119,8 @@ func exportValues(outputModels []models.OutputModel, browserDataLen int, start *
 
 	fmt.Println("--- --- --- --- --- ---")
 
-	fmt.Println("Total records: ", browserDataLen)
+	fmt.Println("Total records: ", len(browserData))
+	fmt.Println("Total users: ", totalUsers)
 	fmt.Println("Total sessions: ", _totalSessions)
 	fmt.Println("Total returning users: ", len(outputModels))
 	fmt.Println("Total transactions: ", _totalTransactions)
@@ -148,14 +162,42 @@ func getOutputModelsForBrowser(browser string, outputModels []models.OutputModel
 	return om
 }
 
+func getTotalUsersForBrowser(browser string, browserData []models.BrowserData, filterBySafari12 bool) int {
+	if filterBySafari12 {
+		browser = "safari"
+	}
+
+	totalForBrowser := linq.From(browserData).Where(func(bd interface{}) bool {
+		bdConverted := bd.(models.BrowserData)
+
+		if strings.ToLower(bdConverted.Browser) == browser {
+			if browser == "safari" && filterBySafari12 {
+				browserVersion := bdConverted.BrowserVersion
+
+				if strings.HasPrefix(browserVersion, "12") || strings.HasPrefix(browserVersion, "13") {
+					return true
+				}
+			} else {
+				return true
+			}
+		}
+
+		return false
+	}).Count()
+
+	return totalForBrowser
+}
+
 func getAverageReturnsForBrowser(outputModels []models.OutputModel) int {
 	averageReturns := 0
 
-	for _, om := range outputModels {
-		averageReturns += om.Returns
-	}
+	if len(outputModels) > 0 {
+		for _, om := range outputModels {
+			averageReturns += om.Returns
+		}
 
-	averageReturns = averageReturns / len(outputModels)
+		averageReturns = averageReturns / len(outputModels)
+	}
 
 	return averageReturns
 }
@@ -163,15 +205,15 @@ func getAverageReturnsForBrowser(outputModels []models.OutputModel) int {
 func getAverageDaysForOutputModels(outputModels []models.OutputModel) int {
 	averageDays := 0
 
-	for _, om := range outputModels {
-		averageDays += om.AverageDaysBetweenVisit
-	}
-
 	if len(outputModels) == 0 {
-		return averageDays
-	}
+		for _, om := range outputModels {
+			averageDays += om.AverageDaysBetweenVisit
+		}
 
-	averageDays = averageDays / len(outputModels)
+		if averageDays > 0 {
+			averageDays = averageDays / len(outputModels)
+		}
+	}
 
 	return averageDays
 }
@@ -199,6 +241,7 @@ func getTransactionsForBrowser(outputModels []models.OutputModel) int {
 func outputValuesToConsole(countModel models.CountModel) {
 	browser := countModel.Browser
 
+	fmt.Println(browser+" total users: ", countModel.TotalUsers)
 	fmt.Println(browser+" returning users: ", countModel.ReturningUserTotal)
 	fmt.Println(browser+" average days between visits: ", countModel.AverageDaysBetweenVisit)
 	fmt.Println(browser+" total returning user sessions: ", countModel.SessionsTotal)
@@ -238,7 +281,9 @@ func getOuputModels(groupQuery []linq.Group) []models.OutputModel {
 
 		returns += groupLength
 
-		if len(days) == 1 {
+		if len(days) == 0 {
+			averageDays = 0
+		} else if len(days) == 1 {
 			averageDays = days[0]
 		} else {
 			sumDays := 0

@@ -40,6 +40,7 @@ type OutputModel struct {
 
 type CountModel struct {
 	Browser                 string
+	TotalUsers              int
 	ReturningUserTotal      int
 	AverageDaysBetweenVisit int
 	SessionsTotal           int
