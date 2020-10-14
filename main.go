@@ -6,6 +6,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ahmetb/go-linq"
@@ -87,6 +88,12 @@ func exportValues(outputModels []models.OutputModel, browserData []models.Browse
 	totalReturningSessions := 0
 	totalReturningTransactions := 0
 
+	totalsForBrowserChan := make(chan models.TotalsModel)
+	outputModelsForBrowserChan := make(chan []models.OutputModel)
+	averageDaysForBrowserChan := make(chan int)
+
+	var wg sync.WaitGroup
+
 	for _, browser := range browserNames {
 		shouldFilter := false
 
@@ -94,47 +101,99 @@ func exportValues(outputModels []models.OutputModel, browserData []models.Browse
 			shouldFilter = true
 		}
 
-		totalUsersForBrowser := getTotalUsersForBrowser(browser, browserData, shouldFilter)
-		outputModelsForBrowser := getOutputModelsForBrowser(browser, outputModels, shouldFilter)
-		averageDaysForBrowser := getAverageDaysForOutputModels(outputModelsForBrowser)
-		sessionsForBrowser := getSessionsForBrowser(outputModelsForBrowser)
-		transactionsForBrowser := getTransactionsForBrowser(outputModelsForBrowser)
+		wg.Add(2)
+
+		go getTotalsForBrowser(&wg, browser, browserData, shouldFilter, totalsForBrowserChan)
+		go getOutputModelsForBrowser(&wg, browser, outputModels, shouldFilter, outputModelsForBrowserChan)
+
+		totalsForBrowser := <-totalsForBrowserChan
+		outputModelsForBrowser := <-outputModelsForBrowserChan
+
+		go getAverageDaysForOutputModels(&wg, outputModelsForBrowser, averageDaysForBrowserChan)
+
+		averageDaysForBrowser := <-averageDaysForBrowserChan
+
+		//outputModelsForBrowser := getOutputModelsForBrowser(browser, outputModels, shouldFilter)
+		//averageDaysForBrowser := getAverageDaysForOutputModels(outputModelsForBrowser)
+		returnSessionsForBrowser := getSessionsForBrowser(outputModelsForBrowser)
+		returnTransactionsForBrowser := getTransactionsForBrowser(outputModelsForBrowser)
 		averageReturnsForBrowser := getAverageReturnsForBrowser(outputModelsForBrowser)
 		browserCountModel := models.CountModel{
-			Browser:                 strings.ToTitle(browser),
-			TotalUsers:              totalUsersForBrowser,
-			AverageDaysBetweenVisit: averageDaysForBrowser,
-			ReturningUserTotal:      len(outputModelsForBrowser),
-			SessionsTotal:           sessionsForBrowser,
-			TransactionsTotal:       transactionsForBrowser,
-			AverageReturns:          averageReturnsForBrowser,
+			Browser:                    strings.ToTitle(browser),
+			TotalUsers:                 totalsForBrowser.Users,
+			AverageDaysBetweenVisit:    averageDaysForBrowser,
+			ReturningUserTotal:         len(outputModelsForBrowser),
+			SessionsTotal:              totalsForBrowser.Sessions,
+			TransactionsTotal:          totalsForBrowser.Transactions,
+			ReturningSessionsTotal:     returnSessionsForBrowser,
+			ReturningTransactionsTotal: returnTransactionsForBrowser,
+			AverageReturns:             averageReturnsForBrowser,
 		}
 
-		totalUsers += totalUsersForBrowser
-		totalReturningSessions += sessionsForBrowser
-		totalReturningTransactions += transactionsForBrowser
+		totalUsers += totalsForBrowser.Users
+		totalReturningSessions += returnSessionsForBrowser
+		totalReturningTransactions += returnTransactionsForBrowser
 
 		countModels = append(countModels, browserCountModel)
 	}
 
-	fmt.Println("--- --- --- --- --- ---")
+	wg.Wait()
 
-	fmt.Println("Total records: ", len(browserData))
-	fmt.Println("Total users: ", totalUsers)
-	fmt.Println("Total sessions: ", _totalSessions)
-	fmt.Println("Total returning users: ", len(outputModels))
-	fmt.Println("Total transactions: ", _totalTransactions)
-	fmt.Println("Total returning user sessions: ", totalReturningSessions)
-	fmt.Println("Total returning user transactions: ", totalReturningTransactions)
+	// fmt.Println("WG DONE")
 
-	fmt.Println("--- --- --- --- --- ---")
+	// fmt.Println("--- --- --- --- --- ---")
+
+	var wg2 sync.WaitGroup
+
+	wg2.Add(6)
+
+	go func() {
+		defer wg2.Done()
+		fmt.Println("Total records: ", len(browserData))
+	}()
+	//go fmt.Println("Total users: ", totalUsers)
+	go func() {
+		defer wg2.Done()
+		fmt.Println("Total sessions: ", _totalSessions)
+	}()
+	go func() {
+		defer wg2.Done()
+		fmt.Println("Total returning users: ", len(outputModels))
+	}()
+	go func() {
+		defer wg2.Done()
+		fmt.Println("Total transactions: ", _totalTransactions)
+	}()
+
+	go func() {
+		defer wg2.Done()
+		fmt.Println("Total returning user sessions: ", totalReturningSessions)
+	}()
+
+	go func() {
+		defer wg2.Done()
+		go fmt.Println("Total returning user transactions: ", totalReturningTransactions)
+	}()
+
+	wg2.Wait()
+	//go fmt.Println("Total returning user sessions: ", totalReturningSessions)
+	//go fmt.Println("Total returning user transactions: ", totalReturningTransactions)
+
+	// fmt.Println("--- --- --- --- --- ---")
+
+	var wg3 sync.WaitGroup
 
 	for _, cm := range countModels {
-		outputValuesToConsole(cm)
+		wg3.Add(1)
+		go outputValuesToConsole(&wg3, cm)
 	}
+
+	wg3.Wait()
 }
 
-func getOutputModelsForBrowser(browser string, outputModels []models.OutputModel, filterBySafari12 bool) []models.OutputModel {
+func getOutputModelsForBrowser(wg *sync.WaitGroup, browser string, outputModels []models.OutputModel, filterBySafari12 bool, outputModelsForBrowserChan chan<- []models.OutputModel) {
+	defer wg.Done()
+
 	om := []models.OutputModel{}
 
 	linq.From(outputModels).Where(func(om interface{}) bool {
@@ -159,15 +218,19 @@ func getOutputModelsForBrowser(browser string, outputModels []models.OutputModel
 		return false
 	}).ToSlice(&om)
 
-	return om
+	//fmt.Println("OUTPUT MODEL: ", om)
+
+	outputModelsForBrowserChan <- om
 }
 
-func getTotalUsersForBrowser(browser string, browserData []models.BrowserData, filterBySafari12 bool) int {
+func getTotalsForBrowser(wg *sync.WaitGroup, browser string, browserData []models.BrowserData, filterBySafari12 bool, totalsModelChan chan<- models.TotalsModel) {
+	defer wg.Done()
+
 	if filterBySafari12 {
 		browser = "safari"
 	}
 
-	totalForBrowser := linq.From(browserData).Where(func(bd interface{}) bool {
+	totalUsersForBrowser := linq.From(browserData).Where(func(bd interface{}) bool {
 		bdConverted := bd.(models.BrowserData)
 
 		if strings.ToLower(bdConverted.Browser) == browser {
@@ -185,7 +248,73 @@ func getTotalUsersForBrowser(browser string, browserData []models.BrowserData, f
 		return false
 	}).Count()
 
-	return totalForBrowser
+	var sessionNumbers []int
+	var transactionNumbers []int
+
+	linq.From(browserData).Where(func(bd interface{}) bool {
+		bdConverted := bd.(models.BrowserData)
+
+		if strings.ToLower(bdConverted.Browser) == browser {
+			if browser == "safari" && filterBySafari12 {
+				browserVersion := bdConverted.BrowserVersion
+
+				if strings.HasPrefix(browserVersion, "12") || strings.HasPrefix(browserVersion, "13") {
+					return true
+				}
+			} else {
+				return true
+			}
+		}
+
+		return false
+	}).Select(func(bd interface{}) interface{} {
+		sessions, _ := strconv.Atoi(bd.(models.BrowserData).Sessions)
+
+		return sessions
+	}).ToSlice(&sessionNumbers)
+
+	linq.From(browserData).Where(func(bd interface{}) bool {
+		bdConverted := bd.(models.BrowserData)
+
+		if strings.ToLower(bdConverted.Browser) == browser {
+			if browser == "safari" && filterBySafari12 {
+				browserVersion := bdConverted.BrowserVersion
+
+				if strings.HasPrefix(browserVersion, "12") || strings.HasPrefix(browserVersion, "13") {
+					return true
+				}
+			} else {
+				return true
+			}
+		}
+
+		return false
+	}).Select(func(bd interface{}) interface{} {
+		sessions, _ := strconv.Atoi(bd.(models.BrowserData).Transactions)
+
+		return sessions
+	}).ToSlice(&transactionNumbers)
+
+	totalSessionsForBrowser := 0
+	totalTransactionsForBrowser := 0
+
+	for _, sessions := range sessionNumbers {
+		totalSessionsForBrowser += sessions
+	}
+
+	for _, transactions := range transactionNumbers {
+		totalTransactionsForBrowser += transactions
+	}
+
+	totalModel := models.TotalsModel{
+		Users:        totalUsersForBrowser,
+		Sessions:     totalSessionsForBrowser,
+		Transactions: totalTransactionsForBrowser,
+	}
+
+	//fmt.Println("TOTAL: ", totalModel)
+
+	totalsModelChan <- totalModel
 }
 
 func getAverageReturnsForBrowser(outputModels []models.OutputModel) int {
@@ -202,20 +331,18 @@ func getAverageReturnsForBrowser(outputModels []models.OutputModel) int {
 	return averageReturns
 }
 
-func getAverageDaysForOutputModels(outputModels []models.OutputModel) int {
+func getAverageDaysForOutputModels(wg *sync.WaitGroup, outputModels []models.OutputModel, averageDaysForBrowserChan chan<- int) {
 	averageDays := 0
 
-	if len(outputModels) == 0 {
-		for _, om := range outputModels {
-			averageDays += om.AverageDaysBetweenVisit
-		}
-
-		if averageDays > 0 {
-			averageDays = averageDays / len(outputModels)
-		}
+	for _, om := range outputModels {
+		averageDays += om.AverageDaysBetweenVisit
 	}
 
-	return averageDays
+	if averageDays > 0 {
+		averageDays = averageDays / len(outputModels)
+	}
+
+	averageDaysForBrowserChan <- averageDays
 }
 
 func getSessionsForBrowser(outputModels []models.OutputModel) int {
@@ -238,14 +365,18 @@ func getTransactionsForBrowser(outputModels []models.OutputModel) int {
 	return transactions
 }
 
-func outputValuesToConsole(countModel models.CountModel) {
+func outputValuesToConsole(wg *sync.WaitGroup, countModel models.CountModel) {
+	defer wg.Done()
+
 	browser := countModel.Browser
 
 	fmt.Println(browser+" total users: ", countModel.TotalUsers)
 	fmt.Println(browser+" returning users: ", countModel.ReturningUserTotal)
 	fmt.Println(browser+" average days between visits: ", countModel.AverageDaysBetweenVisit)
-	fmt.Println(browser+" total returning user sessions: ", countModel.SessionsTotal)
-	fmt.Println(browser+" total returning user transactions: ", countModel.TransactionsTotal)
+	fmt.Println(browser+" total sessions: ", countModel.SessionsTotal)
+	fmt.Println(browser+" total transactions: ", countModel.TransactionsTotal)
+	fmt.Println(browser+" total returning user sessions: ", countModel.ReturningSessionsTotal)
+	fmt.Println(browser+" total returning user transactions: ", countModel.ReturningTransactionsTotal)
 	fmt.Println(browser+" average number of returns: ", countModel.AverageReturns)
 
 	fmt.Println("--- --- --- --- --- ---")

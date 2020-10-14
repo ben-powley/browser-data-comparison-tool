@@ -29,6 +29,12 @@ type CSVRow struct {
 	Count string
 }
 
+type TotalsModel struct {
+	Users        int
+	Sessions     int
+	Transactions int
+}
+
 type OutputModel struct {
 	Browser                 string
 	Group                   Group
@@ -39,11 +45,13 @@ type OutputModel struct {
 }
 
 type CountModel struct {
-	Browser                 string
-	TotalUsers              int
-	ReturningUserTotal      int
-	AverageDaysBetweenVisit int
-	SessionsTotal           int
-	TransactionsTotal       int
-	AverageReturns          int
+	Browser                    string
+	TotalUsers                 int
+	ReturningUserTotal         int
+	AverageDaysBetweenVisit    int
+	SessionsTotal              int
+	TransactionsTotal          int
+	ReturningSessionsTotal     int
+	ReturningTransactionsTotal int
+	AverageReturns             int
 }
